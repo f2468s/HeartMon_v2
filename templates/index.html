@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <title>Blood Pressure Tracker</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            background-color: #f4f4f4;
+        }
+
+        #container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #fff;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            border-radius: 10px;
+        }
+
+        h2 {
+            color: #333;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #555;
+        }
+
+        input {
+            width: 50%;
+            padding: 10px;
+            margin-bottom: 15px;
+            box-sizing: border-box;
+        }
+
+        button {
+            background-color: #4caf50;
+            color: #fff;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        #chart {
+            margin-top: 20px;
+        }
+
+        table {
+            width: 100%;
+            margin-top: 20px;
+            border-collapse: collapse;
+        }
+
+        table, th, td {
+            border: 1px solid #ddd;
+            text-align: left;
+        }
+
+        th, td {
+            padding: 10px;
+        }
+
+        .plot-title {
+            font-size: 18px; /* Adjust the size as needed */
+        }
+
+        /* Mobile-friendly styles */
+        @media screen and (max-width: 600px) {
+            body {
+                font-size: 14px;
+            }
+
+            #container {
+                padding: 10px;
+            }
+
+            input {
+                padding: 8px;
+            }
+
+            button {
+                padding: 8px 12px;
+            }
+
+            table {
+                font-size: 14px;
+            }
+
+            /* Reduce font size for mobile */
+            .plot-title {
+                font-size: 16px; /* Adjust the size as needed */
+            }
+        }
+    </style>
+</head>
+<body>
+<div id="container">
+    <h2 class="plot-title">Enter Blood Pressure and Pulse Values:</h2>
+    <label for="sys">Systolic:</label>
+    <input type="number" id="sys" placeholder="Enter Systolic value">
+
+    <label for="dia">Diastolic:</label>
+    <input type="number" id="dia" placeholder="Enter Diastolic value">
+
+    <label for="pul">Pulse:</label>
+    <input type="number" id="pul" placeholder="Enter Pulse value">
+
+    <button onclick="updateChart()">Add Data</button>
+
+    <div id="chart"></div>
+
+    <table id="dataTable">
+        <thead>
+            <tr>
+                <th>Date and Time</th>
+                <th>Systolic (mmHg)</th>
+                <th>Diastolic (mmHg)</th>
+                <th>Pulse (/min)</th>
+                <th>Systolic (Rolling Avg)</th>
+                <th>Diastolic (Rolling Avg)</th>
+                <th>Pulse (Rolling Avg)</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+
+    <!-- Add export button -->
+    <button onclick="exportData()">Export Data</button>
+</div>
+
+<script>
+    var dataPoints = [];
+    var rollingWindowSize = 5; // Change this to set the rolling window size
+    var sysUpperLimit = 140; // Set the upper limit for systolic values
+    var sysLowerLimit = 95; // Set the lower limit for systolic values
+
+    document.addEventListener('DOMContentLoaded', function () {
+        // Fetch old data when the page is loaded
+        fetch('/get_data')
+            .then(response => response.json())
+            .then(result => {
+                if (result.data) {
+                    dataPoints = result.data;
+                    plotChart();
+                    updateTable();
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching data:', error);
+            });
+    });
+
+    function updateChart() {
+        var sysInput = document.getElementById('sys');
+        var diaInput = document.getElementById('dia');
+        var pulInput = document.getElementById('pul');
+
+        var sysValue = parseFloat(sysInput.value);
+        var diaValue = parseFloat(diaInput.value);
+        var pulValue = parseFloat(pulInput.value);
+
+        if (!isNaN(sysValue) && !isNaN(diaValue) && !isNaN(pulValue)) {
+            var now = new Date();
+            var dateTime = now.toLocaleString();
+
+            var data = {
+                dateTime: dateTime,
+                systolic: sysValue,
+                diastolic: diaValue,
+                pulse: pulValue
+            };
+
+            sendDataToServer(data);
+        }
+
+        // Clear input fields
+        sysInput.value = '';
+        diaInput.value = '';
+        pulInput.value = '';
+    }
+
+    function sendDataToServer(data) {
+        fetch('/add_data', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        })
+        .then(response => response.json())
+        .then(result => {
+            if (result.status === 'success') {
+                dataPoints.push(data);
+                plotChart();
+                updateTable();
+            } else {
+                console.error('Failed to add data.');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+        });
+    }
+
+    function plotChart() {
+        var chartDiv = document.getElementById('chart');
+
+        var traceSys = {
+            x: dataPoints.map(point => point.dateTime),
+            y: dataPoints.map(point => point.systolic),
+            mode: 'lines+markers',
+            type: 'scatter',
+            name: 'Systolic'
+        };
+
+        var traceDia = {
+            x: dataPoints.map(point => point.dateTime),
+            y: dataPoints.map(point => point.diastolic),
+            mode: 'lines+markers',
+            type: 'scatter',
+            name: 'Diastolic'
+        };
+
+        var tracePul = {
+            x: dataPoints.map(point => point.dateTime),
+            y: dataPoints.map(point => point.pulse),
+            mode: 'lines+markers',
+            type: 'scatter',
+            name: 'Pulse'
+        };
+
+        var traceSysAvg = {
+            x: dataPoints.map(point => point.dateTime),
+            y: calculateRollingAverage(dataPoints.map(point => point.systolic), rollingWindowSize),
+            mode: 'lines',
+            type: 'scatter',
+            name: 'Systolic (Rolling Avg)'
+        };
+
+        var traceDiaAvg = {
+            x: dataPoints.map(point => point.dateTime),
+            y: calculateRollingAverage(dataPoints.map(point => point.diastolic), rollingWindowSize),
+            mode: 'lines',
+            type: 'scatter',
+            name: 'Diastolic (Rolling Avg)'
+        };
+
+        var tracePulAvg = {
+            x: dataPoints.map(point => point.dateTime),
+            y: calculateRollingAverage(dataPoints.map(point => point.pulse), rollingWindowSize),
+            mode: 'lines',
+            type: 'scatter',
+            name: 'Pulse (Rolling Avg)'
+        };
+
+        var traceSysUpperLimit = {
+            x: dataPoints.map(point => point.dateTime),
+            y: Array(dataPoints.length).fill(sysUpperLimit),
+            mode: 'lines',
+            type: 'scatter',
+            name: 'Systolic Upper Limit',
+            line: { dash: 'dash' }
+        };
+
+        var traceSysLowerLimit = {
+            x: dataPoints.map(point => point.dateTime),
+            y: Array(dataPoints.length).fill(sysLowerLimit),
+            mode: 'lines',
+            type: 'scatter',
+            name: 'Systolic Lower Limit',
+            line: { dash: 'dash' }
+        };
+
+        var data = [traceSys, traceDia, tracePul, traceSysAvg, traceDiaAvg, tracePulAvg, traceSysUpperLimit, traceSysLowerLimit];
+
+        var layout = {
+            title: 'Blood Pressure Chart',
+            xaxis: {
+                //title: 'Date and Time'
+            },
+            yaxis: {
+                title: 'Value'
+            },
+
+            legend: {
+                x: 0,
+                y: -1,  // Adjust this value to move the legend further down
+                traceorder: 'normal',
+                orientation: 'h',
+            }
+        };
+
+        Plotly.newPlot(chartDiv, data, layout);
+    }
+
+    function updateTable() {
+        var tableBody = document.querySelector('#dataTable tbody');
+        tableBody.innerHTML = '';
+
+        dataPoints.forEach(point => {
+            var row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${point.dateTime}</td>
+                <td>${point.systolic}</td>
+                <td>${point.diastolic}</td>
+                <td>${point.pulse}</td>
+                <td>${calculateRollingAverage(dataPoints.map(point => point.systolic), rollingWindowSize)[dataPoints.indexOf(point)].toFixed(2)}</td>
+                <td>${calculateRollingAverage(dataPoints.map(point => point.diastolic), rollingWindowSize)[dataPoints.indexOf(point)].toFixed(2)}</td>
+                <td>${calculateRollingAverage(dataPoints.map(point => point.pulse), rollingWindowSize)[dataPoints.indexOf(point)].toFixed(2)}</td>
+            `;
+            tableBody.appendChild(row);
+        });
+    }
+
+    function calculateRollingAverage(data, windowSize) {
+        var averages = [];
+
+        for (var i = 0; i < data.length; i++) {
+            var sum = 0;
+            var count = 0;
+
+            for (var j = Math.max(0, i - windowSize + 1); j <= i; j++) {
+                sum += data[j];
+                count++;
+            }
+
+            averages.push(sum / count);
+        }
+
+        return averages;
+    }
+
+    function exportData() {
+        var exportFormat = prompt("Enter 'db' to export as SQLite database or 'csv' to export as CSV:");
+
+        if (exportFormat) {
+            if (exportFormat.toLowerCase() === 'db') {
+                exportAsDatabase();
+            } else if (exportFormat.toLowerCase() === 'csv') {
+                exportAsCSV();
+            } else {
+                alert("Invalid export format. Please enter 'db' or 'csv'.");
+            }
+        }
+    }
+
+    function exportAsDatabase() {
+        window.location.href = '/export_db';
+    }
+
+    function exportAsCSV() {
+        window.location.href = '/export_csv';
+    }
+</script>
+
+</body>
+</html>
